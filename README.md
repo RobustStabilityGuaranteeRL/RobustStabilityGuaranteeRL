@@ -28,7 +28,7 @@ pip install matplotlib
 ```
 ### Example 1. RLAC with continous cartpole
 ```
-python main_for_sac.py
+python main.py
 ```
 The hyperparameters, the tasks and the learning algorithm can be changed via change the variant.py, for example:
 
