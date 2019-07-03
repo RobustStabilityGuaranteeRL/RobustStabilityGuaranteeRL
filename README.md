@@ -26,36 +26,41 @@ pip install gym
 pip install matplotlib
 
 ```
-### Example 1. 
+### Example 1. RLAC with continous cartpole
 ```
 python main_for_sac.py
 ```
 The hyperparameters, the tasks and the learning algorithm can be changed via change the variant.py, for example:
 
 
-
-The env_name could be one of ['CartPolecons-v0','CartPolecost-v0','Antcons-v0', 'HalfCheetahcons-v0','Pointcircle-v0','Quadrotorcons-v0','Quadrotorcost-v0','FetchReach-v1', 'Carcost-v0']
-
-
-
-
-The algorithm_name could be one of ['SAC_lyapunov', 'SAC', 'SSAC','CPO', 'CPO_lyapunov', 'PDO', 'DDPG','LAC','SAC_cost']
-
+The algorithm_name could be one of ['RLAC','RARL','SAC_cost']
 
 
 Other hyperparameter are also ajustable in variant.py.
 ```bash
 VARIANT = {
-    'env_name': 'CartPolecons-v0',
-    'algorithm_name': 'SAC_lyapunov',
-    'additional_description': '-Test',
-    'evaluate': False,
-    'train':True,
-    'evaluation_frequency': 2048,
-    'num_of_paths': 1,
-    'num_of_trials': 5,
-    'store_last_n_paths': 10,
+    'env_name': 'cartpole_cost',
+    #training prams
+    'algorithm_name': 'RLAC',
+    # 'algorithm_name': 'RARL',
+    # 'algorithm_name': 'SAC_cost',
+    'disturber': 'SAC',
+    'additional_description': '',
+    # 'evaluate': False,
+    'train': True,
+    # 'train': False,
+    'num_of_trials': 10,   # number of random seeds
+    'store_last_n_paths': 10,  # number of trajectories for evaluation during training
     'start_of_trial': 0,
+    #evaluation params
+    'evaluation_form': 'impulse',
+    # 'evaluation_form': 'param_variation',
+    # 'evaluation_form': 'trained_disturber',
+    'eval_list': [
+        # 'RLAC',
+    ],
+    'trials_for_eval': [str(i) for i in range(0, 10)],
+    'evaluation_frequency': 2048,
 }
 ```
 ## Reference
