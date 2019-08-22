@@ -21,6 +21,7 @@ class LQR(object):
         total_mass = (masspole + masscart)
         polemass_length = (masspole * length)
         g = 10
+        tau = 0.02
         H = np.array([
             [1, 0, 0, 0],
             [0, total_mass, 0, - polemass_length],
@@ -43,42 +44,78 @@ class LQR(object):
         P = lqr(A, B, Q, R)
         Rinv = np.linalg.inv(R)
         K = Rinv @ B.T @ P
-        # H = np.mat([[masscart+masspole, masspole*length],
-        #             [masspole*length,   masspole*length**2]])
-        # dev_G = np.mat([[0,0],
-        #                 [0,-masspole*g*length]])
-        # A_sup = np.concatenate([np.zeros([2,2]),
-        #                         np.diag(np.ones([2]))], axis=1)
-        # A_sub = np.concatenate([-H.I*dev_G,np.zeros([2,2])],axis=1)
-        # A = np.concatenate([A_sup,A_sub],axis=0)
-        # B_dev = np.mat([[0],
-        #                 [1]])
-        # B = np.concatenate([np.zeros([2,1]),
-        #                     H.I*B_dev],axis=0)
-        #
-        # Q = np.diag([0.1, 1.0, 100.0, 5.0])
-        #
-        # R = np.mat([1.])
-        # K = np.mat(np.ones([1,4]))
-        # P = np.mat(np.zeros([4,4]))
-        # P_piao = np.mat(np.diag(np.ones([4])))
-        # i = 0
-        # ### optimize the controler
-        # while np.linalg.norm(P_piao-P)>1e-8:
-        #     P = P_piao
-        #     K = -(R+gamma*B.T*P*B).I*B.T*P*A
-        #     P_piao = Q + K.T*R*K + gamma * (A+B*K).T * P *(A+B*K)
-        #     i += 1
+        self.use_Kalman = variant['use_Kalman']
+        if self.use_Kalman:
+            discrete_A = np.diag(np.ones([4])) + A * tau
+            discrete_B = B * tau
+            self.filter = Legubger_filter(discrete_A, discrete_B, np.array([[1.,0.,0.,0.],[0.,0.,1.,0.]]))
 
         self.K = K
+        self.u_0 = np.zeros([1])
 
     def choose_action(self, x, arg):
+        if self.use_Kalman:
+            x = self.filter.estimate(x, self.u_0)
         x1 = np.copy(x)
         x1[2] = np.sin(x1[2])
-        return np.dot(self.K, x1)
+        self.u_0 = np.dot(self.K, x)
+        return self.u_0
+
+    def reset(self):
+        self.u_0 = np.zeros([1])
+        if self.use_Kalman:
+            self.filter.reset()
+
     def restore(self, log_path):
 
         return True
+
+class Legubger_filter(object):
+
+    def __init__(self,A, B, C):
+        self.L = np.array([[1.92668388701879, 0.109692525183410],[48.0804019233042, 12.1540057699631],
+                           [0.0548643352320299, 2.05876680124335],[5.49508778749990,  62.5683170108460]])
+
+        self.A = A
+        self.B = B
+        self.C = C
+        self.x_0 = np.zeros([4])
+
+    def estimate(self, z, u_0):
+        x_hat = self.A.dot(self.x_0) + self.B .dot(u_0) + self.L.dot(z - self.C.dot(self.x_0))
+        self.x_0 = x_hat
+        z_hat = self.C.dot(x_hat)
+        return x_hat
+
+    def reset(self):
+        self.x_0 = np.zeros([4])
+
+class Kalman_filter(object):
+
+    def __init__(self,A, B, C):
+        self.A = A
+        self.B = B
+        self.P = np.eye(4)
+        self.Q = np.eye(4)
+        self.R = np.eye(2)
+        self.C = C
+        self.x_0 = np.zeros([4])
+
+    def estimate(self, z, u_0):
+        x_hat = self.A.dot(self.x_0) + self.B .dot(u_0)
+        P = np.dot(self.A .dot(self.P),self.A.T) + self.Q
+        K = np.dot(P.dot(self.C.T), np.linalg.inv(np.dot(self.C .dot(P), self.C.T) + self.R))
+        x = x_hat + K.dot(z - self.C .dot(x_hat))
+        # self.P = (np.eye(4) - K.dot(self.C)).dot(P)
+        I = np.eye(4)
+        self.P = np.dot(np.dot(I - np.dot(K, self.C), P), (I - np.dot(K, self.C)).T) + np.dot(np.dot(K, self.R), K.T)
+        self.x_0 = x
+        z_hat = self.C.dot(x)
+        return x
+
+    def reset(self):
+        self.P = np.eye(4)
+        self.x_0 = np.zeros([4])
 
 def eval(variant):
     env_name = variant['env_name']

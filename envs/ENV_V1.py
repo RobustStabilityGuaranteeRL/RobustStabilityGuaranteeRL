@@ -162,6 +162,7 @@ class CartPoleEnv_adv(gym.Env):
                or theta < -self.theta_threshold_radians \
                or theta > self.theta_threshold_radians
         done = bool(done)
+        # done = False
         if x < -self.x_threshold \
                 or x > self.x_threshold:
             a = 1
@@ -204,7 +205,7 @@ class CartPoleEnv_adv(gym.Env):
         scale = screen_width / world_width
         carty = 100  # TOP OF CART
         polewidth = 10.0
-        polelen = scale * 1.0
+        polelen = scale * 2.0
         cartwidth = 50.0
         cartheight = 30.0
 

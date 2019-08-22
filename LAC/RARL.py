@@ -386,7 +386,7 @@ def train(variant):
                 disturbance, raw_disturbance = disturber.choose_action(s, j)
                 # Run in simulator
                 # disturbance = np.array([0])
-                disturbance_input = np.zeros([5])
+                disturbance_input = np.zeros([a_dim + s_dim])
                 disturbance_input[disturbance_chanel_list] = disturbance
                 s_, r, done, info = env.step(action, process_noise=disturbance_input)
                 if 'Fetch' in env_name or 'Hand' in env_name:
@@ -459,7 +459,8 @@ def train(variant):
                     lr_l_now = lr_l * frac  # learning rate for critic
 
                     break
-
+        if global_step > max_global_steps:
+            break
         for i in range(iter_of_disturber_train):
 
             current_path = {'rewards': [],

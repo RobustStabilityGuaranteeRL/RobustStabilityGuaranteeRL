@@ -193,7 +193,7 @@ class CartPoleEnv_adv(gym.Env):
         self.state = self.np_random.uniform(low=-0.2, high=0.2, size=(4,))
         # self.state[0] = self.np_random.uniform(low=5, high=6)
         self.state[0] = self.np_random.uniform(low=-5, high=5)
-        self.state[2] = self.np_random.uniform(low=-self.theta_threshold_radians/3, high=self.theta_threshold_radians/3)
+        # self.state[2] = self.np_random.uniform(low=-self.theta_threshold_radians/3, high=self.theta_threshold_radians/3)
         self.steps_beyond_done = None
         return np.array(self.state)
 

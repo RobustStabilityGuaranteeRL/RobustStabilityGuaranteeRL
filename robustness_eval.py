@@ -9,6 +9,73 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
+
+def get_distrubance_function(env_name):
+    if 'cartpole_cost' in env_name:
+        disturbance_step = cartpole_disturber
+    elif 'HalfCheetah' in env_name:
+        disturbance_step = halfcheetah_disturber
+    else:
+        disturbance_step = None
+        print('no disturber designed for ' + env_name)
+    return disturbance_step
+
+
+def cartpole_disturber(time, s, action, env, eval_params, form_of_eval, disturber=None):
+    if form_of_eval=='impulse':
+        if time == eval_params['impulse_instant']:
+            d = eval_params['magnitude'] * np.sign(s[0])
+        else:
+            d = 0
+        s_, r, done, info = env.step(action, impulse=d)
+
+    elif form_of_eval=='constant_impulse':
+        if time % eval_params['impulse_instant']==0:
+            d = eval_params['magnitude'] * np.sign(s[0])
+        else:
+            d = 0
+        s_, r, done, info = env.step(action, impulse=d)
+    elif form_of_eval == 'various_disturbance':
+        if eval_params['form'] == 'sin':
+            d = np.sin(2 *np.pi /eval_params['period'] * time + initial_pos) * eval_params['magnitude']
+        s_, r, done, info = env.step(action, impulse=d)
+    else:
+        d, _ = disturber.choose_action(s, time)
+        s_, r, done, info = env.step(action, process_noise=d)
+    return s_, r, done, info
+
+
+def halfcheetah_disturber(time, s, action, env, eval_params, form_of_eval, disturber=None):
+    if form_of_eval == 'impulse':
+        if time ==eval_params['impulse_instant']:
+            # d = np.zeros([23])
+            # d[3] = 1.
+
+            # d = eval_params['magnitude'] * (-np.sign(action[3])) * d
+            d = eval_params['magnitude'] * (-np.sign(action))
+            d = np.concatenate([d, np.zeros([17])])
+        else:
+            d = np.zeros([23])
+    elif form_of_eval == 'constant_impulse':
+        if time % eval_params['impulse_instant'] == 0:
+            d = eval_params['magnitude'] * (-np.sign(action))
+            d = np.concatenate([d, np.zeros([17])])
+        else:
+            d = np.zeros([23])
+    elif form_of_eval=='various_disturbance':
+        if eval_params['form'] == 'sin':
+            d = np.sin(2*np.pi/ eval_params['period'] * time + initial_pos) * eval_params['magnitude']
+
+        d = np.concatenate([d, np.zeros([17])], axis=0)
+    else:
+        d, _ = disturber.choose_action(s, time)
+        d = np.concatenate([d, np.zeros([17])], axis=0)
+    s_, r, done, info = env.step(action, process_noise=d)
+    return s_, r, done, info
+
+
+
+
 def param_variation(variant):
     env_name = variant['env_name']
     env = get_env_from_name(env_name)
@@ -16,11 +83,16 @@ def param_variation(variant):
 
     eval_params = variant['eval_params']
     policy_params = variant['alg_params']
+    policy_params.update({
+        's_bound': env.observation_space,
+        'a_bound': env.action_space,
+    })
     disturber_params = variant['disturber_params']
     build_func = get_policy(variant['algorithm_name'])
     s_dim = env.observation_space.shape[0]
     a_dim = env.action_space.shape[0]
     d_dim = env_params['disturbance dim']
+
     policy = build_func(a_dim, s_dim, d_dim, policy_params)
     # disturber = Disturber(d_dim, s_dim, disturber_params)
 
@@ -133,6 +205,77 @@ def instant_impulse(variant):
         [logger.logkv(key, diagnostic_dict[key]) for key in diagnostic_dict.keys()]
         logger.dumpkvs()
 
+def constant_impulse(variant):
+    env_name = variant['env_name']
+    env = get_env_from_name(env_name)
+    env_params = variant['env_params']
+
+    eval_params = variant['eval_params']
+    policy_params = variant['alg_params']
+    disturber_params = variant['disturber_params']
+    build_func = get_policy(variant['algorithm_name'])
+    if 'Fetch' in env_name or 'Hand' in env_name:
+        s_dim = env.observation_space.spaces['observation'].shape[0] \
+                + env.observation_space.spaces['achieved_goal'].shape[0] + \
+                env.observation_space.spaces['desired_goal'].shape[0]
+    else:
+        s_dim = env.observation_space.shape[0]
+    a_dim = env.action_space.shape[0]
+    d_dim = env_params['disturbance dim']
+    policy = build_func(a_dim, s_dim, d_dim, policy_params)
+    # disturber = Disturber(d_dim, s_dim, disturber_params)
+
+    log_path = variant['log_path'] + '/eval/constant_impulse'
+    variant['eval_params'].update({'magnitude': 0})
+    logger.configure(dir=log_path, format_strs=['csv'])
+    for magnitude in eval_params['magnitude_range']:
+        variant['eval_params']['magnitude'] = magnitude
+        diagnostic_dict = evaluation(variant, env, policy)
+
+        string_to_print = ['magnitude', ':', str(magnitude), '|']
+        [string_to_print.extend([key, ':', str(round(diagnostic_dict[key], 2)), '|'])
+         for key in diagnostic_dict.keys()]
+        print(''.join(string_to_print))
+
+        logger.logkv('magnitude', magnitude)
+        [logger.logkv(key, diagnostic_dict[key]) for key in diagnostic_dict.keys()]
+        logger.dumpkvs()
+
+def various_disturbance(variant):
+    env_name = variant['env_name']
+    env = get_env_from_name(env_name)
+    env_params = variant['env_params']
+
+    eval_params = variant['eval_params']
+    policy_params = variant['alg_params']
+    disturber_params = variant['disturber_params']
+    build_func = get_policy(variant['algorithm_name'])
+    if 'Fetch' in env_name or 'Hand' in env_name:
+        s_dim = env.observation_space.spaces['observation'].shape[0] \
+                + env.observation_space.spaces['achieved_goal'].shape[0] + \
+                env.observation_space.spaces['desired_goal'].shape[0]
+    else:
+        s_dim = env.observation_space.shape[0]
+    a_dim = env.action_space.shape[0]
+    d_dim = env_params['disturbance dim']
+    policy = build_func(a_dim, s_dim, d_dim, policy_params)
+    # disturber = Disturber(d_dim, s_dim, disturber_params)
+
+    log_path = variant['log_path'] + '/eval/various_disturbance-' + eval_params['form']
+    variant['eval_params'].update({'period': 0})
+    logger.configure(dir=log_path, format_strs=['csv'])
+    for period in eval_params['period_list']:
+        variant['eval_params']['period'] = period
+        diagnostic_dict = evaluation(variant, env, policy)
+        frequency = 1./period
+        string_to_print = ['frequency', ':', str(frequency), '|']
+        [string_to_print.extend([key, ':', str(round(diagnostic_dict[key], 2)), '|'])
+         for key in diagnostic_dict.keys()]
+        print(''.join(string_to_print))
+
+        logger.logkv('frequency', frequency)
+        [logger.logkv(key, diagnostic_dict[key]) for key in diagnostic_dict.keys()]
+        logger.dumpkvs()
 
 def trained_disturber(variant):
     env_name = variant['env_name']
@@ -152,6 +295,8 @@ def trained_disturber(variant):
     a_dim = env.action_space.shape[0]
     d_dim = env_params['disturbance dim']
     policy = build_func(a_dim, s_dim, d_dim, policy_params)
+    disturbance_chanel_list = np.nonzero(disturber_params['disturbance_magnitude'])[0]
+    disturber_params['disturbance_chanel_list'] = disturbance_chanel_list
     disturber = Disturber(d_dim, s_dim, disturber_params)
     disturber.restore(eval_params['path'])
 
@@ -173,11 +318,11 @@ def evaluation(variant, env, policy, disturber= None):
     env_name = variant['env_name']
 
     env_params = variant['env_params']
-
+    disturbance_step = get_distrubance_function(env_name)
     max_ep_steps = env_params['max_ep_steps']
 
     eval_params = variant['eval_params']
-
+    a_dim = env.action_space.shape[0]
     a_upperbound = env.action_space.high
     a_lowerbound = env.action_space.low
     # For analyse
@@ -191,9 +336,6 @@ def evaluation(variant, env, policy, disturber= None):
     trial_list = os.listdir(variant['log_path'])
     episode_length = []
 
-    if form_of_eval == 'impulse':
-        # impulse_instant = np.random.choice(int(0.8*max_ep_steps), [1])
-        impulse_instant = 100
 
     for trial in trial_list:
         if trial == 'eval':
@@ -211,28 +353,25 @@ def evaluation(variant, env, policy, disturber= None):
             s = env.reset()
             if 'Fetch' in env_name or 'Hand' in env_name:
                 s = np.concatenate([s[key] for key in s.keys()])
-
+            global initial_pos
+            initial_pos = np.random.uniform(0., np.pi, size=[a_dim])
             for j in range(max_ep_steps):
                 if Render:
                     env.render()
                 a = policy.choose_action(s, True)
-                if variant['algorithm_name'] == 'LQR':
+                if variant['algorithm_name'] == 'LQR' or variant['algorithm_name'] == 'MPC':
                     action = a
                 else:
                     action = a_lowerbound + (a + 1.) * (a_upperbound - a_lowerbound) / 2
-                if disturber is not None:
-                    disturbance = disturber.choose_action(s, True)
-                else:
-                    disturbance = np.zeros([5])
-                if form_of_eval == 'impulse':
-                    if j == impulse_instant:
-                        impulse = eval_params['magnitude'] * np.sign(s[0])
-                    else:
-                        impulse = 0
 
-                    s_, r, done, info = env.step(action, impulse=impulse)
+                if form_of_eval == 'impulse' or form_of_eval == 'constant_impulse' \
+                        or form_of_eval == 'various_disturbance':
+
+                    s_, r, done, info = disturbance_step(j, s, action, env, eval_params, form_of_eval)
+                elif form_of_eval == 'trained_disturber':
+                    s_, r, done, info = disturbance_step(j, s, action, env, eval_params, form_of_eval, disturber=disturber)
                 else:
-                    s_, r, done, info = env.step(action, process_noise=disturbance)
+                    s_, r, done, info = env.step(action)
 
                 cost += r
                 if 'Fetch' in env_name or 'Hand' in env_name:
@@ -244,6 +383,8 @@ def evaluation(variant, env, policy, disturber= None):
                     done = True
                 s = s_
                 if done:
+                    if variant['algorithm_name'] == 'LQR':
+                        policy.reset()
                     seed_average_cost.append(cost)
                     episode_length.append(j)
                     if j < max_ep_steps-1:
@@ -352,13 +493,17 @@ if __name__ == '__main__':
             VARIANT['alg_params'] = ALG_PARAMS['SAC_cost']
             VARIANT['algorithm_name'] = 'SAC_cost'
         else:
-            VARIANT['alg_params'] = {}
+            VARIANT['alg_params'] = ALG_PARAMS['LQR']
             VARIANT['algorithm_name'] = 'LQR'
         print('evaluating '+name)
         if VARIANT['evaluation_form'] == 'param_variation':
             param_variation(VARIANT)
         elif VARIANT['evaluation_form'] == 'trained_disturber':
             trained_disturber(VARIANT)
+        elif VARIANT['evaluation_form'] == 'various_disturbance':
+            various_disturbance(VARIANT)
+        elif VARIANT['evaluation_form'] == 'constant_impulse':
+            constant_impulse(VARIANT)
         else:
             instant_impulse(VARIANT)
         tf.reset_default_graph()

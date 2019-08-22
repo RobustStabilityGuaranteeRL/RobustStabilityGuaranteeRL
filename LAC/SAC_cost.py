@@ -10,6 +10,7 @@ from copy import deepcopy
 import sys
 sys.path.append("..")
 from disturber.disturber import Disturber
+from robustness_eval import training_evaluation
 from pool.pool import Pool
 import logger
 from variant import *

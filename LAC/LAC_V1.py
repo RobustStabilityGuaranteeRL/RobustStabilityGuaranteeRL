@@ -44,12 +44,16 @@ class LAC(object):
         # self.pointer = 0
         self.sess = tf.Session()
         self._action_prior = action_prior
+        s_dim = s_dim * (variant['history_horizon']+1)
         self.a_dim, self.s_dim, self.d_dim = a_dim, s_dim, d_dim
+        self.history_horizon = variant['history_horizon']
+        self.working_memory = deque(maxlen=variant['history_horizon']+1)
         target_entropy = variant['target_entropy']
         if target_entropy is None:
             self.target_entropy = -self.a_dim   #lower bound of the policy entropy
         else:
             self.target_entropy = target_entropy
+        self.finite_horizon = variant['finite_horizon']
         with tf.variable_scope('Actor'):
             self.S = tf.placeholder(tf.float32, [None, s_dim], 's')
             self.S_ = tf.placeholder(tf.float32, [None, s_dim], 's_')
@@ -57,7 +61,7 @@ class LAC(object):
             self.a_input = tf.placeholder(tf.float32, [None, a_dim], 'a_input')
             self.a_input_ = tf.placeholder(tf.float32, [None, a_dim], 'a_input_')
             self.R = tf.placeholder(tf.float32, [None, 1], 'r')
-
+            self.V = tf.placeholder(tf.float32, [None, 1], 'v')
             self.terminal = tf.placeholder(tf.float32, [None, 1], 'terminal')
             self.LR_A = tf.placeholder(tf.float32, None, 'LR_A')
             self.LR_C = tf.placeholder(tf.float32, None, 'LR_C')
@@ -142,7 +146,10 @@ class LAC(object):
                 q2_target = self.R + gamma * (1 - self.terminal) * tf.stop_gradient(
                     min_next_q - self.alpha * tf.expand_dims(next_log_pis, axis=1))  # ddpg
                 if self.approx_value:
-                    l_target = self.R + gamma * (1-self.terminal)*tf.stop_gradient(l_)  # Lyapunov critic - self.alpha * next_log_pis
+                    if self.finite_horizon:
+                        l_target = self.V
+                    else:
+                        l_target = self.R + gamma * (1-self.terminal)*tf.stop_gradient(l_)  # Lyapunov critic - self.alpha * next_log_pis
                 else:
                     l_target = self.R
 
@@ -166,8 +173,17 @@ class LAC(object):
                 self.opt.append(self.alpha_train)
 
     def choose_action(self, s, evaluation = False):
+        if len(self.working_memory) < self.history_horizon:
+            [self.working_memory.appendleft(s) for _ in range(self.history_horizon)]
+
+        self.working_memory.appendleft(s)
+        s = np.concatenate(self.working_memory)
+
         if evaluation is True:
-            return self.sess.run(self.deterministic_a, {self.S: s[np.newaxis, :]})[0]
+            try:
+                return self.sess.run(self.deterministic_a, {self.S: s[np.newaxis, :]})[0]
+            except ValueError:
+                return
         else:
             return self.sess.run(self.a, {self.S: s[np.newaxis, :]})[0]
 
@@ -192,9 +208,11 @@ class LAC(object):
 
         bterminal = batch['terminal']
         bs_ = batch['s_']  # next state
-
-        feed_dict = {self.a_input: ba, self.d_input:bd, self.S: bs, self.S_: bs_, self.R: br, self.terminal: bterminal,
+        feed_dict = {self.a_input: ba, self.d_input: bd, self.S: bs, self.S_: bs_, self.R: br, self.terminal: bterminal,
                      self.LR_C: LR_C, self.LR_A: LR_A, self.LR_L: LR_L}
+        if self.finite_horizon:
+            bv = batch['value']
+            feed_dict.update({self.V:bv})
 
         self.sess.run(self.opt, feed_dict)
         labda, alpha, q1_error, q2_error, l_error, entropy, a_loss = self.sess.run(self.diagnotics, feed_dict)
@@ -254,7 +272,7 @@ class LAC(object):
             w1_s = tf.get_variable('w1_s', [self.s_dim, n_l1], trainable=trainable)
             w1_a = tf.get_variable('w1_a', [self.a_dim, n_l1], trainable=trainable)
             b1 = tf.get_variable('b1', [1, n_l1], trainable=trainable)
-            net_0 = tf.nn.relu(tf.matmul(s, w1_s) + tf.matmul(a, w1_a) + b1)
+            net_0 = tf.nn.sigmoid(tf.matmul(s, w1_s) + tf.matmul(a, w1_a) + b1)
             net_1 = tf.layers.dense(net_0, 256, activation=tf.nn.relu, name='l2', trainable=trainable)  # 原始是30
             return tf.layers.dense(net_1, 1, trainable=trainable)  # Q(s,a)
 
@@ -267,6 +285,7 @@ class LAC(object):
             b1 = tf.get_variable('b1', [1, n_l1], trainable=trainable)
             net_0 = tf.nn.relu(tf.matmul(s, w1_s) + tf.matmul(a, w1_a) + b1)
             net_1 = tf.layers.dense(net_0, 64, activation=tf.nn.relu, name='l2', trainable=trainable)  # 原始是30
+            # net_2 = tf.layers.dense(net_1, 32, activation=tf.nn.relu, name='l3', trainable=trainable)  # 原始是30
             return tf.layers.dense(net_1, 1, trainable=trainable)  # Q(s,a)
 
     def save_result(self, path):
@@ -286,6 +305,7 @@ class LAC(object):
 def train(variant):
     env_name = variant['env_name']
     env = get_env_from_name(env_name)
+
     env_params = variant['env_params']
 
     max_episodes = env_params['max_episodes']
@@ -335,12 +355,15 @@ def train(variant):
         'store_last_n_paths': store_last_n_paths,
         'memory_capacity': policy_params['memory_capacity'],
         'min_memory_size': policy_params['min_memory_size'],
+        'history_horizon': policy_params['history_horizon'],
+        'finite_horizon':policy_params['finite_horizon']
     }
     if 'value_horizon' in policy_params.keys():
         pool_params.update({'value_horizon': policy_params['value_horizon']})
     else:
         pool_params['value_horizon'] = None
     pool = Pool(pool_params)
+    disturber_pool = Pool(pool_params)
     # For analyse
     Render = env_params['eval_render']
 
@@ -349,6 +372,7 @@ def train(variant):
     global_step = 0
     last_training_paths = deque(maxlen=store_last_n_paths)
     training_started = False
+    disturber_training_started = False
 
     log_path = variant['log_path']
     logger.configure(dir=log_path, format_strs=['csv'])
@@ -389,11 +413,14 @@ def train(variant):
             if Render:
                 env.render()
             a = policy.choose_action(s, True)
+            # a = a*0
             action = a_lowerbound + (a + 1.) * (a_upperbound - a_lowerbound) / 2
             disturbance, raw_disturbance = disturber.choose_action(s, j)
             # Run in simulator
-            disturbance_input = np.zeros([5])
-            disturbance_input[disturbance_chanel_list] = disturbance
+            disturbance_input = np.zeros([a_dim + s_dim])
+            if global_step > disturber_params['start_of_disturbance']:
+                disturbance_input[disturbance_chanel_list] = disturbance
+
             s_, r, done, info = env.step(action, process_noise=disturbance_input)
 
             if 'Fetch' in env_name or 'Hand' in env_name:
@@ -411,6 +438,8 @@ def train(variant):
             pool.store(s, a, disturbance, raw_disturbance, r, terminal, s_)
             # policy.store_transition(s, a, disturbance, r,0, terminal, s_)
             # Learn
+            if global_step>disturber_params['start_of_disturbance']:
+                disturber_pool.store(s, a, disturbance, raw_disturbance, r, terminal, s_)
 
             if pool.memory_pointer > min_memory_size and global_step % steps_per_cycle == 0:
                 training_started = True
@@ -419,12 +448,15 @@ def train(variant):
                     batch = pool.sample(batch_size)
                     labda, alpha, c1_loss, c2_loss, l_loss, entropy, a_loss = policy.learn(lr_a_now, lr_c_now, lr_l_now, batch)
 
-            if pool.memory_pointer > min_memory_size and global_step % disturber_params['steps_per_cycle'] == 0:
-                training_started = True
+            if disturber_pool.memory_pointer > min_memory_size and global_step % disturber_params['steps_per_cycle'] == 0:
+                disturber_training_started = True
 
                 for _ in range(disturber_params['train_per_cycle']):
-                    batch = pool.sample(disturber_params['batch_size'])
+                    batch = disturber_pool.sample(disturber_params['batch_size'])
                     d_alpha, d_c1_loss, d_c2_loss, d_entropy, d_loss = disturber.learn(lr_a_now, lr_c_now, batch)
+
+            if not disturber_training_started:
+                [d_alpha, d_c1_loss, d_c2_loss, d_entropy, d_loss ]= np.zeros([5])
 
             if training_started:
                 current_path['rewards'].append(r)
@@ -438,7 +470,7 @@ def train(variant):
                 current_path['entropy'].append(entropy)
                 current_path['d_entropy'].append(d_entropy)
                 current_path['a_loss'].append(a_loss)
-                current_path['disturbance_mag'].append(np.linalg.norm(disturbance))
+                current_path['disturbance_mag'].append(np.linalg.norm(disturbance_input))
 
 
             if training_started and global_step % evaluation_frequency == 0 and global_step > 0:
@@ -461,7 +493,7 @@ def train(variant):
                     [string_to_print.extend([key, ':', str(round(training_diagnotic[key], 2)) , '|'])
                      for key in training_diagnotic.keys()]
                     print(''.join(string_to_print))
-
+                    continue
                 logger.dumpkvs()
             # 状态更新
             s = s_
@@ -482,5 +514,294 @@ def train(variant):
     print('Running time: ', time.time() - t1)
     return
 
+def train_v2(variant):
+    env_name = variant['env_name']
+    env = get_env_from_name(env_name)
+    env_params = variant['env_params']
 
+    max_episodes = env_params['max_episodes']
+    max_ep_steps = env_params['max_ep_steps']
+    max_global_steps = env_params['max_global_steps']
+    store_last_n_paths = variant['store_last_n_paths']
+    evaluation_frequency = variant['evaluation_frequency']
+
+    policy_build_fun = get_policy(variant['algorithm_name'])
+    policy_params = variant['alg_params']
+    disturber_params = variant['disturber_params']
+    iter_of_actor_train = policy_params['iter_of_actor_train_per_epoch']
+    iter_of_disturber_train = policy_params['iter_of_disturber_train_per_epoch']
+
+    min_memory_size = policy_params['min_memory_size']
+    steps_per_cycle = policy_params['steps_per_cycle']
+    train_per_cycle = policy_params['train_per_cycle']
+    batch_size = policy_params['batch_size']
+
+    lr_a, lr_c, lr_l = policy_params['lr_a'], policy_params['lr_c'], policy_params['lr_l']
+    lr_a_now = lr_a  # learning rate for actor
+    lr_c_now = lr_c  # learning rate for critic
+    lr_l_now = lr_l  # learning rate for critic
+
+    if 'Fetch' in env_name or 'Hand' in env_name:
+        s_dim = env.observation_space.spaces['observation'].shape[0]\
+                + env.observation_space.spaces['achieved_goal'].shape[0]+ \
+                env.observation_space.spaces['desired_goal'].shape[0]
+    else:
+        s_dim = env.observation_space.shape[0]
+    a_dim = env.action_space.shape[0]
+    # if disturber_params['process_noise']:
+    #     d_dim = disturber_params['noise_dim']
+    # else:
+    #     d_dim = env_params['disturbance dim']
+    d_dim = np.nonzero(disturber_params['disturbance_magnitude'])[0].shape[0]
+    disturbance_chanel_list = np.nonzero(disturber_params['disturbance_magnitude'])[0]
+    disturber_params['disturbance_chanel_list'] = disturbance_chanel_list
+    a_upperbound = env.action_space.high
+    a_lowerbound = env.action_space.low
+    policy = policy_build_fun(a_dim,s_dim,d_dim, policy_params)
+    disturber = Disturber(d_dim, s_dim, disturber_params)
+
+    pool_params = {
+        's_dim': s_dim,
+        'a_dim': a_dim,
+        'd_dim': d_dim,
+        'store_last_n_paths': store_last_n_paths,
+        'memory_capacity': policy_params['memory_capacity'],
+        'min_memory_size': policy_params['min_memory_size'],
+        'finite_horizon': policy_params['finite_horizon'],
+    }
+    if 'value_horizon' in policy_params.keys():
+        pool_params.update({'value_horizon': policy_params['value_horizon']})
+    else:
+        pool_params['value_horizon'] = None
+    pool = Pool(pool_params)
+    # For analyse
+    Render = env_params['eval_render']
+
+    # Training setting
+    t1 = time.time()
+    global_step = 0
+
+    last_actor_training_paths = deque(maxlen=store_last_n_paths)
+    last_disturber_training_paths = deque(maxlen=store_last_n_paths)
+    actor_training_started = False
+    disturber_training_started = False
+    log_path = variant['log_path']
+    logger.configure(dir=log_path, format_strs=['csv'])
+    logger.logkv('tau', policy_params['tau'])
+    logger.logkv('ita', policy_params['ita'])
+    logger.logkv('energy_decay_rate', disturber_params['energy_decay_rate'])
+    logger.logkv('magnitude', disturber_params['disturbance_magnitude'])
+    logger.logkv('alpha3', policy_params['alpha3'])
+    logger.logkv('batch_size', policy_params['batch_size'])
+    logger.logkv('target_entropy', policy.target_entropy)
+    for iter in range(max_episodes):
+
+        for i in range(iter_of_actor_train):
+
+            current_path = {'rewards': [],
+                            'disturbance_mag': [],
+                            'a_loss': [],
+                            'alpha': [],
+                            'lyapunov_error': [],
+                            'labda': [],
+                            'critic_error': [],
+                            'entropy': [],
+                            }
+
+            if global_step > max_global_steps:
+                break
+
+            s = env.reset()
+            if 'Fetch' in env_name or 'Hand' in env_name:
+                s = np.concatenate([s[key] for key in s.keys()])
+
+            for j in range(max_ep_steps):
+                if Render:
+                    env.render()
+                a = policy.choose_action(s, True)
+                action = a_lowerbound + (a + 1.) * (a_upperbound - a_lowerbound) / 2
+                disturbance, raw_disturbance = disturber.choose_action(s, j)
+                # Run in simulator
+                # disturbance = np.array([0])
+                disturbance_input = np.zeros([a_dim + s_dim])
+                disturbance_input[disturbance_chanel_list] = disturbance
+                s_, r, done, info = env.step(action, process_noise=disturbance_input)
+                if 'Fetch' in env_name or 'Hand' in env_name:
+                    s_ = np.concatenate([s_[key] for key in s_.keys()])
+                    if info['done'] > 0:
+                        done = True
+
+                if actor_training_started:
+                    global_step += 1
+
+                if j == max_ep_steps - 1:
+                    done = True
+
+                terminal = 1. if done else 0.
+                pool.store(s, a, disturbance, raw_disturbance, r, terminal, s_)
+                # policy.store_transition(s, a, disturbance, r,0, terminal, s_)
+                # Learn
+
+                if pool.memory_pointer > min_memory_size and global_step % steps_per_cycle == 0:
+                    actor_training_started = True
+
+                    for _ in range(train_per_cycle):
+                        batch = pool.sample(batch_size)
+                        labda, alpha, c1_loss, c2_loss, l_loss, entropy, a_loss = policy.learn(lr_a_now, lr_c_now, lr_l_now, batch)
+
+
+                if actor_training_started:
+                    current_path['rewards'].append(r)
+                    current_path['labda'].append(labda)
+                    current_path['critic_error'].append(min(c1_loss, c2_loss))
+                    current_path['lyapunov_error'].append(l_loss)
+                    current_path['alpha'].append(alpha)
+
+                    current_path['entropy'].append(entropy)
+                    current_path['a_loss'].append(a_loss)
+                    current_path['disturbance_mag'].append(np.linalg.norm(disturbance))
+
+
+                if actor_training_started and global_step % evaluation_frequency == 0 and global_step > 0:
+
+                    logger.logkv("total_timesteps", global_step)
+
+                    training_diagnotic = evaluate_training_rollouts(last_actor_training_paths)
+                    if training_diagnotic is not None:
+
+                        [logger.logkv(key, training_diagnotic[key]) for key in training_diagnotic.keys()]
+                        logger.logkv('lr_a', lr_a_now)
+                        logger.logkv('lr_c', lr_c_now)
+                        logger.logkv('lr_l', lr_l_now)
+                        string_to_print = ['Actor training!time_step:',str(global_step),'|']
+
+                        [string_to_print.extend([key, ':', str(round(training_diagnotic[key], 2)) , '|'])
+                         for key in training_diagnotic.keys()]
+
+                        print(''.join(string_to_print))
+
+                    logger.dumpkvs()
+                # 状态更新
+                s = s_
+
+
+                # OUTPUT TRAINING INFORMATION AND LEARNING RATE DECAY
+                if done:
+                    if actor_training_started:
+                        last_actor_training_paths.appendleft(current_path)
+
+                    frac = 1.0 - (global_step - 1.0) / max_global_steps
+                    lr_a_now = lr_a * frac  # learning rate for actor
+                    lr_c_now = lr_c * frac  # learning rate for critic
+                    lr_l_now = lr_l * frac  # learning rate for critic
+
+                    break
+        if global_step > max_global_steps:
+            break
+        for i in range(iter_of_disturber_train):
+
+            current_path = {'rewards': [],
+                            'disturbance_mag': [],
+
+                            'd_loss': [],
+                            'alpha': [],
+
+
+                            'disturber_critic_error': [],
+
+                            'entropy': [],
+                            }
+
+            if global_step > max_global_steps:
+                break
+
+            s = env.reset()
+            if 'Fetch' in env_name or 'Hand' in env_name:
+                s = np.concatenate([s[key] for key in s.keys()])
+
+            for j in range(max_ep_steps):
+                if Render:
+                    env.render()
+                a = policy.choose_action(s, True)
+                action = a_lowerbound + (a + 1.) * (a_upperbound - a_lowerbound) / 2
+                disturbance, raw_disturbance = disturber.choose_action(s, j)
+                # Run in simulator
+                # disturbance = np.array([0])
+                s_, r, done, info = env.step(action, disturbance)
+                if 'Fetch' in env_name or 'Hand' in env_name:
+                    s_ = np.concatenate([s_[key] for key in s_.keys()])
+                    if info['done'] > 0:
+                        done = True
+
+                if disturber_training_started:
+                    global_step += 1
+
+                if j == max_ep_steps - 1:
+                    done = True
+
+                terminal = 1. if done else 0.
+                pool.store(s, a, disturbance, raw_disturbance, r, terminal, s_)
+                # policy.store_transition(s, a, disturbance, r,0, terminal, s_)
+                # Learn
+
+
+                if pool.memory_pointer > min_memory_size and global_step % disturber_params['steps_per_cycle'] == 0:
+                    disturber_training_started = True
+
+                    for _ in range(disturber_params['train_per_cycle']):
+                        batch = pool.sample(disturber_params['batch_size'])
+                        d_alpha, d_c1_loss, d_c2_loss, d_entropy, d_loss = disturber.learn(lr_a_now, lr_c_now, batch)
+                # d_c1_loss = 0
+                # d_c2_loss = 0
+                # d_loss=0
+                if disturber_training_started:
+                    current_path['rewards'].append(r)
+
+
+                    current_path['disturber_critic_error'].append(min(d_c1_loss, d_c2_loss))
+                    current_path['d_loss'].append(d_loss)
+                    current_path['alpha'].append(d_alpha)
+
+                    current_path['entropy'].append(d_entropy)
+
+                    current_path['disturbance_mag'].append(np.linalg.norm(disturbance))
+
+                if disturber_training_started and global_step % evaluation_frequency == 0 and global_step > 0:
+
+                    logger.logkv("total_timesteps", global_step)
+
+                    training_diagnotic = evaluate_training_rollouts(last_disturber_training_paths)
+                    if training_diagnotic is not None:
+                        [logger.logkv(key, training_diagnotic[key]) for key in training_diagnotic.keys()]
+                        logger.logkv('lr_a', lr_a_now)
+                        logger.logkv('lr_c', lr_c_now)
+                        logger.logkv('lr_l', lr_l_now)
+                        string_to_print = ['Disturber training!time_step:', str(global_step), '|']
+
+                        [string_to_print.extend([key, ':', str(round(training_diagnotic[key], 2)), '|'])
+                         for key in training_diagnotic.keys()]
+
+                        print(''.join(string_to_print))
+
+                    logger.dumpkvs()
+                # 状态更新
+                s = s_
+
+                # OUTPUT TRAINING INFORMATION AND LEARNING RATE DECAY
+                if done:
+                    if disturber_training_started:
+                        last_disturber_training_paths.appendleft(current_path)
+
+                    frac = 1.0 - (global_step - 1.0) / max_global_steps
+                    lr_a_now = lr_a * frac  # learning rate for actor
+                    lr_c_now = lr_c * frac  # learning rate for critic
+                    lr_l_now = lr_l * frac  # learning rate for critic
+
+                    break
+        if global_step > max_global_steps:
+            break
+    policy.save_result(log_path)
+    disturber.save_result(log_path)
+    print('Running time: ', time.time() - t1)
+    return
 

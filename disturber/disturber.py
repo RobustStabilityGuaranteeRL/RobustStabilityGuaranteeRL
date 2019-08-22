@@ -203,8 +203,8 @@ class Disturber(object):
             base_distribution = tfp.distributions.MultivariateNormalDiag(loc=tf.zeros(self.a_dim), scale_diag=tf.ones(self.a_dim))
             epsilon = base_distribution.sample(batch_size)
             ## Construct the feedforward action
-            net_0 = tf.layers.dense(s, 256, activation=tf.nn.relu, name='l1', trainable=trainable)#原始是30
-            net_1 = tf.layers.dense(net_0, 256, activation=tf.nn.relu, name='l4', trainable=trainable)  # 原始是30
+            net_0 = tf.layers.dense(s, 64, activation=tf.nn.relu, name='l1', trainable=trainable)#原始是30
+            net_1 = tf.layers.dense(net_0, 64, activation=tf.nn.relu, name='l4', trainable=trainable)  # 原始是30
             mu = tf.layers.dense(net_1, self.a_dim, activation= None, name='a', trainable=trainable)
             log_sigma = tf.layers.dense(net_1, self.a_dim, None, trainable=trainable)
             log_sigma = tf.clip_by_value(log_sigma, *SCALE_DIAG_MIN_MAX)
@@ -254,12 +254,12 @@ class Disturber(object):
     def _build_c(self, s, a, name ='Critic', reuse=None, custom_getter=None):
         trainable = True if reuse is None else False
         with tf.variable_scope(name, reuse=reuse, custom_getter=custom_getter):
-            n_l1 = 256#30
+            n_l1 = 64#30
             w1_s = tf.get_variable('w1_s', [self.s_dim, n_l1], trainable=trainable)
             w1_a = tf.get_variable('w1_a', [self.a_dim, n_l1], trainable=trainable)
             b1 = tf.get_variable('b1', [1, n_l1], trainable=trainable)
             net_0 = tf.nn.relu(tf.matmul(s, w1_s) + tf.matmul(a, w1_a) + b1)
-            net_1 = tf.layers.dense(net_0, 256, activation=tf.nn.relu, name='l2', trainable=trainable)  # 原始是30
+            net_1 = tf.layers.dense(net_0, 64, activation=tf.nn.relu, name='l2', trainable=trainable)  # 原始是30
             return tf.layers.dense(net_1, 1, trainable=trainable)  # Q(s,a)
 
     def save_result(self, path):
