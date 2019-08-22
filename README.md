@@ -69,6 +69,14 @@ VARIANT = {
 ![figure1](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/training-return-1.jpg)
 ![figure2](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/impulse/impulse-death_rate-2.jpg)
 ![figure3](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/constant_impulse-death_rate-3.jpg)
+![figure4](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/various_disturbance-sin-death_rate-4.jpg)
+![figure5](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/param_variation/@@figure2-5.jpg)
+![figure6](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/halfcheetah/training-return-6.jpg)
+![figure7](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/halfcheetah/constant_impulse-return-7.jpg)
+![figure8](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/halfcheetah/various_disturbance-sin-return-8.jpg)
+![figure9](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/impulse/impulse-death_rate_comparison-9.jpg)
+
+
 ## Reference
 
 
