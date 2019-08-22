@@ -67,6 +67,7 @@ VARIANT = {
 ```
 ### Figures
 <img src = "https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/training-return-1.jpg" width=400 alt="1">
+<img src = "https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/training-return-1.jpg" width=400 alt="2">
 ![figure1](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/training-return-1.jpg)
 ![figure2](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/impulse/impulse-death_rate-2.jpg)
 ![figure3](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/constant_impulse-death_rate-3.jpg)
