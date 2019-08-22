@@ -26,6 +26,8 @@ pip install gym
 pip install matplotlib
 
 ```
+
+![figure1](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/training-return.pdf)
 ### Example 1. RLAC with continous cartpole
 ```
 python main.py
