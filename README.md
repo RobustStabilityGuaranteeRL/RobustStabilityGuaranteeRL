@@ -97,6 +97,7 @@ VARIANT = {
 <div align=center><img src = "https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/video-gif.gif" width=600 alt="figure"></div>
 <div align=center>Video</div>
 
+Visulization of agents trained by RLAC and RARL in presence of instant and persistant impulses and sine wave disturbances in the Cartpole environment.
 ## Reference
 
 
