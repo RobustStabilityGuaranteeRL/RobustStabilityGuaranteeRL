@@ -27,7 +27,7 @@ pip install matplotlib
 
 ```
 
-![figure1](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/training-return.pdf)
+
 ### Example 1. RLAC with continous cartpole
 ```
 python main.py
@@ -65,7 +65,11 @@ VARIANT = {
     'evaluation_frequency': 2048,
 }
 ```
+### Figures
+![figure1](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/cartpole/training-return.pdf)
+![figure2](https://github.com/RobustStabilityGuaranteeRL/RobustStabilityGuaranteeRL/blob/master/figures/halfcheetah/constant_impulse-return.pdf)
 ## Reference
+
 
 [1] [Reinforcement-learning-with-tensorflow](https://github.com/MorvanZhou/Reinforcement-learning-with-tensorflow)
 
